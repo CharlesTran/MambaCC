@@ -68,7 +68,7 @@ train:
 
   # losses
   pixel_opt:
-    type: L1Loss
+    type: AngularLoss
     loss_weight: 1.0
     reduction: mean
 # validation settings

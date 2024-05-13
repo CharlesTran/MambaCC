@@ -100,13 +100,9 @@ class ImageCleanModel(BaseModel):
             self.net_g_ema.eval()
 
         # define losses
-        if train_opt.get('pixel_opt'):
-            pixel_type = train_opt['pixel_opt'].pop('type')
-            cri_pix_cls = getattr(loss_module, pixel_type)
-            self.cri_pix = cri_pix_cls(**train_opt['pixel_opt']).to(
+        pixel_type = train_opt['pixel_opt'].pop('type')
+        self.angloss = getattr(loss_module, pixel_type)(**train_opt['pixel_opt']).to(
                 self.device)
-        else:
-            raise ValueError('pixel loss are None.')
 
         # set up optimizers and schedulers
         self.setup_optimizers()
@@ -135,6 +131,7 @@ class ImageCleanModel(BaseModel):
 
     def feed_train_data(self, data):
         self.img = data['img'].to(self.device)
+        self.label = data['label'].to(self.device)
         if 'gt' in data:
             self.gt = data['gt'].to(self.device)
 
@@ -143,28 +140,18 @@ class ImageCleanModel(BaseModel):
 
     def feed_data(self, data):
         self.img = data['img'].to(self.device)
+        self.label = data['label'].to(self.device)
         if 'gt' in data:
             self.gt = data['gt'].to(self.device)
 
     def optimize_parameters(self, current_iter):
         self.optimizer_g.zero_grad()
         preds = self.net_g(self.img)
-        if not isinstance(preds, list):
-            preds = [preds]
-
-        self.output = preds[-1]
 
         loss_dict = OrderedDict()
-        # pixel loss
-        l_pix = 0.
-        for pred in preds:
-            l_pix += self.cri_pix(pred, self.gt)
-
-        loss_dict['l_pix'] = l_pix
-
-        l_pix.backward()
-        if self.opt['train']['use_grad_clip']:
-            torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
+        angloss = self.angloss(preds, self.label)
+        print(angloss)
+        angloss.backward()
         self.optimizer_g.step()
 
         self.log_dict = self.reduce_loss_dict(loss_dict)

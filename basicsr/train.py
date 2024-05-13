@@ -10,7 +10,7 @@ import sys
 import os
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir.replace('/basicsr',''))
-
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
 from basicsr.data import create_dataloader, create_dataset
 from basicsr.data.data_sampler import EnlargedSampler
 from basicsr.models import create_model
@@ -201,10 +201,6 @@ def main():
             # training
             model.feed_data(train_data)
             model.optimize_parameters(current_iter)
-            if current_iter == 1:
-                # reset start time in msg_logger for more accurate eta_time
-                # not work in resume mode
-                msg_logger.reset_start_time()
             # log
             if current_iter % opt['logger']['print_freq'] == 0:
                 log_vars = {'epoch': epoch, 'iter': current_iter}
@@ -214,9 +210,9 @@ def main():
 
             # save models and training states
             if current_iter % opt['logger']['save_checkpoint_freq'] == 0:
+                print("Saving models and training states.")
                 logger.info('Saving models and training states.')
                 model.save(epoch, current_iter)
-
             # validation
             if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
                 for val_loader in val_loader:

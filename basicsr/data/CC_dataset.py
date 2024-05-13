@@ -51,6 +51,7 @@ class ColorCheckerDataset(data.Dataset):
         # gt = hwc_to_chw(bgr_to_rgb(gt))
         img = torch.from_numpy(img.copy())
         label = torch.from_numpy(np.array(label))
+        
         img = img.type(torch.FloatTensor)
 
         return {

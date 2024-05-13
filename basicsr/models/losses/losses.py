@@ -2,7 +2,9 @@ import torch
 from torch import nn as nn
 from torch.nn import functional as F
 import numpy as np
-
+from torch import Tensor
+import math
+from torch.nn.functional import normalize
 from basicsr.models.losses.loss_util import weighted_loss
 
 _reduction_modes = ['none', 'mean', 'sum']
@@ -120,3 +122,12 @@ class CharbonnierLoss(nn.Module):
         # loss = torch.sum(torch.sqrt(diff * diff + self.eps))
         loss = torch.mean(torch.sqrt((diff * diff) + (self.eps*self.eps)))
         return loss
+    
+class AngularLoss(nn.Module):
+    def __init__(self,loss_weight=1.0, reduction='mean'):
+        super().__init__()
+
+    def forward(self, pred: Tensor, label: Tensor, safe_v: float = 0.999999):
+        dot = torch.clamp(torch.sum(normalize(pred, dim=1) * normalize(label, dim=1), dim=1), -safe_v, safe_v)
+        angle = torch.acos(dot) * (180 / math.pi)
+        return torch.mean(angle)

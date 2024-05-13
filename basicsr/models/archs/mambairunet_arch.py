@@ -12,6 +12,7 @@ import math
 from typing import Optional, Callable
 from einops import rearrange, repeat
 from functools import partial
+from torch.nn.functional import normalize
 
 NEG_INF = -1000000
 
@@ -583,16 +584,16 @@ class MambaIRUNet(nn.Module):
         ###########################
 
         self.output = nn.Conv2d(int(dim * 2 ** 1), out_channels, kernel_size=3, stride=1, padding=1, bias=bias)
-
+        self.output = nn.Linear(384, 3)
     def forward(self, inp_img):
 
         _, _, H, W = inp_img.shape
-        inp_enc_level1 = self.patch_embed(inp_img)  # b,hw,c
+        inp_enc_level1 = self.patch_embed(inp_img)  # b,hw,c [2, 262144, 48]
         out_enc_level1 = inp_enc_level1
         for layer in self.encoder_level1:
             out_enc_level1 = layer(out_enc_level1, [H, W])
 
-        inp_enc_level2 = self.down1_2(out_enc_level1, H, W)  # b, hw//4, 2c
+        inp_enc_level2 = self.down1_2(out_enc_level1, H, W)  # b, hw//4, 2c [2, 65536, 96]
         out_enc_level2 = inp_enc_level2
         for layer in self.encoder_level2:
             out_enc_level2 = layer(out_enc_level2, [H // 2, W // 2])
@@ -606,7 +607,10 @@ class MambaIRUNet(nn.Module):
         latent = inp_enc_level4
         for layer in self.latent:
             latent = layer(latent, [H // 8, W // 8])
-
+        latent = self.output(latent)
+        latent = torch.sum(latent, 1)
+        pred = normalize(latent,dim=1)
+        return pred
         inp_dec_level3 = self.up4_3(latent, H // 8, W // 8)  # b, hw//16, 4c
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 2)
         inp_dec_level3 = rearrange(inp_dec_level3, "b (h w) c -> b c h w", h=H // 4, w=W // 4).contiguous()
