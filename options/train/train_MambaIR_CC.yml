@@ -13,13 +13,13 @@ datasets:
     dataroot_gt: /data/czx/datasets/CC/train/gt_corrected/
     dataroot_img: /data/czx/datasets/CC/train/linear_images/
     dataroot_label: /data/czx/datasets/CC/metadata.txt
-
+    img_size: [256,256]
     gt_size: 512
 
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 8
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 1
 
   val:
     name: CC
@@ -27,7 +27,7 @@ datasets:
     dataroot_gt: /data/czx/datasets/CC/val/gt_corrected/
     dataroot_img: /data/czx/datasets/CC/val/linear_images
     dataroot_label: /data/czx/datasets/CC/metadata.txt
-
+    img_size: [256,256]
 # network structures
 network_g:
   type: MambaIRUNet

@@ -9,11 +9,13 @@ def cubic(x):
     absx2 = absx**2
     absx3 = absx**3
     return (1.5 * absx3 - 2.5 * absx2 + 1) * (
-        (absx <= 1).type_as(absx)) + (-0.5 * absx3 + 2.5 * absx2 - 4 * absx + 2) * (((absx > 1) *
-                                                                                     (absx <= 2)).type_as(absx))
+        (absx <= 1).type_as(absx)) + (-0.5 * absx3 + 2.5 * absx2 - 4 * absx +
+                                      2) * (((absx > 1) *
+                                             (absx <= 2)).type_as(absx))
 
 
-def calculate_weights_indices(in_length, out_length, scale, kernel, kernel_width, antialiasing):
+def calculate_weights_indices(in_length, out_length, scale, kernel,
+                              kernel_width, antialiasing):
     """Calculate weights and indices, used for imresize function.
 
     Args:
@@ -48,8 +50,8 @@ def calculate_weights_indices(in_length, out_length, scale, kernel, kernel_width
 
     # The indices of the input pixels involved in computing the k-th output
     # pixel are in row k of the indices matrix.
-    indices = left.view(out_length, 1).expand(out_length, p) + torch.linspace(0, p - 1, p).view(1, p).expand(
-        out_length, p)
+    indices = left.view(out_length, 1).expand(out_length, p) + torch.linspace(
+        0, p - 1, p).view(1, p).expand(out_length, p)
 
     # The weights used to compute the k-th output pixel are in row k of the
     # weights matrix.
@@ -101,18 +103,11 @@ def imresize(img, scale, antialiasing=True):
     Returns:
         Tensor: Output image with shape (c, h, w), [0, 1] range, w/o round.
     """
-    squeeze_flag = False
     if type(img).__module__ == np.__name__:  # numpy type
         numpy_type = True
-        if img.ndim == 2:
-            img = img[:, :, None]
-            squeeze_flag = True
         img = torch.from_numpy(img.transpose(2, 0, 1)).float()
     else:
         numpy_type = False
-        if img.ndim == 2:
-            img = img.unsqueeze(0)
-            squeeze_flag = True
 
     in_c, in_h, in_w = img.size()
     out_h, out_w = math.ceil(in_h * scale), math.ceil(in_w * scale)
@@ -120,10 +115,10 @@ def imresize(img, scale, antialiasing=True):
     kernel = 'cubic'
 
     # get weights and indices
-    weights_h, indices_h, sym_len_hs, sym_len_he = calculate_weights_indices(in_h, out_h, scale, kernel, kernel_width,
-                                                                             antialiasing)
-    weights_w, indices_w, sym_len_ws, sym_len_we = calculate_weights_indices(in_w, out_w, scale, kernel, kernel_width,
-                                                                             antialiasing)
+    weights_h, indices_h, sym_len_hs, sym_len_he = calculate_weights_indices(
+        in_h, out_h, scale, kernel, kernel_width, antialiasing)
+    weights_w, indices_w, sym_len_ws, sym_len_we = calculate_weights_indices(
+        in_w, out_w, scale, kernel, kernel_width, antialiasing)
     # process H dimension
     # symmetric copying
     img_aug = torch.FloatTensor(in_c, in_h + sym_len_hs + sym_len_he, in_w)
@@ -144,7 +139,8 @@ def imresize(img, scale, antialiasing=True):
     for i in range(out_h):
         idx = int(indices_h[i][0])
         for j in range(in_c):
-            out_1[j, i, :] = img_aug[j, idx:idx + kernel_width, :].transpose(0, 1).mv(weights_h[i])
+            out_1[j, i, :] = img_aug[j, idx:idx + kernel_width, :].transpose(
+                0, 1).mv(weights_h[i])
 
     # process W dimension
     # symmetric copying
@@ -166,15 +162,11 @@ def imresize(img, scale, antialiasing=True):
     for i in range(out_w):
         idx = int(indices_w[i][0])
         for j in range(in_c):
-            out_2[j, :, i] = out_1_aug[j, :, idx:idx + kernel_width].mv(weights_w[i])
+            out_2[j, :, i] = out_1_aug[j, :,
+                                       idx:idx + kernel_width].mv(weights_w[i])
 
-    if squeeze_flag:
-        out_2 = out_2.squeeze(0)
     if numpy_type:
-        out_2 = out_2.numpy()
-        if not squeeze_flag:
-            out_2 = out_2.transpose(1, 2, 0)
-
+        out_2 = out_2.numpy().transpose(1, 2, 0)
     return out_2
 
 
@@ -206,7 +198,8 @@ def rgb2ycbcr(img, y_only=False):
         out_img = np.dot(img, [65.481, 128.553, 24.966]) + 16.0
     else:
         out_img = np.matmul(
-            img, [[65.481, -37.797, 112.0], [128.553, -74.203, -93.786], [24.966, 112.0, -18.214]]) + [16, 128, 128]
+            img, [[65.481, -37.797, 112.0], [128.553, -74.203, -93.786],
+                  [24.966, 112.0, -18.214]]) + [16, 128, 128]
     out_img = _convert_output_type_range(out_img, img_type)
     return out_img
 
@@ -239,7 +232,8 @@ def bgr2ycbcr(img, y_only=False):
         out_img = np.dot(img, [24.966, 128.553, 65.481]) + 16.0
     else:
         out_img = np.matmul(
-            img, [[24.966, 112.0, -18.214], [128.553, -74.203, -93.786], [65.481, -37.797, 112.0]]) + [16, 128, 128]
+            img, [[24.966, 112.0, -18.214], [128.553, -74.203, -93.786],
+                  [65.481, -37.797, 112.0]]) + [16, 128, 128]
     out_img = _convert_output_type_range(out_img, img_type)
     return out_img
 
@@ -267,8 +261,11 @@ def ycbcr2rgb(img):
     """
     img_type = img.dtype
     img = _convert_input_type_range(img) * 255
-    out_img = np.matmul(img, [[0.00456621, 0.00456621, 0.00456621], [0, -0.00153632, 0.00791071],
-                              [0.00625893, -0.00318811, 0]]) * 255.0 + [-222.921, 135.576, -276.836]  # noqa: E126
+    out_img = np.matmul(img, [[0.00456621, 0.00456621, 0.00456621],
+                              [0, -0.00153632, 0.00791071],
+                              [0.00625893, -0.00318811, 0]]) * 255.0 + [
+                                  -222.921, 135.576, -276.836
+                              ]  # noqa: E126
     out_img = _convert_output_type_range(out_img, img_type)
     return out_img
 
@@ -296,8 +293,11 @@ def ycbcr2bgr(img):
     """
     img_type = img.dtype
     img = _convert_input_type_range(img) * 255
-    out_img = np.matmul(img, [[0.00456621, 0.00456621, 0.00456621], [0.00791071, -0.00153632, 0],
-                              [0, -0.00318811, 0.00625893]]) * 255.0 + [-276.836, 135.576, -222.921]  # noqa: E126
+    out_img = np.matmul(img, [[0.00456621, 0.00456621, 0.00456621],
+                              [0.00791071, -0.00153632, 0],
+                              [0, -0.00318811, 0.00625893]]) * 255.0 + [
+                                  -276.836, 135.576, -222.921
+                              ]  # noqa: E126
     out_img = _convert_output_type_range(out_img, img_type)
     return out_img
 
@@ -307,7 +307,7 @@ def _convert_input_type_range(img):
 
     It converts the input image to np.float32 type and range of [0, 1].
     It is mainly used for pre-processing the input image in colorspace
-    conversion functions such as rgb2ycbcr and ycbcr2rgb.
+    convertion functions such as rgb2ycbcr and ycbcr2rgb.
 
     Args:
         img (ndarray): The input image. It accepts:
@@ -325,7 +325,8 @@ def _convert_input_type_range(img):
     elif img_type == np.uint8:
         img /= 255.
     else:
-        raise TypeError(f'The img type should be np.float32 or np.uint8, but got {img_type}')
+        raise TypeError('The img type should be np.float32 or np.uint8, '
+                        f'but got {img_type}')
     return img
 
 
@@ -336,7 +337,7 @@ def _convert_output_type_range(img, dst_type):
     images will be converted to np.uint8 type with range [0, 255]. If
     `dst_type` is np.float32, it converts the image to np.float32 type with
     range [0, 1].
-    It is mainly used for post-processing images in colorspace conversion
+    It is mainly used for post-processing images in colorspace convertion
     functions such as rgb2ycbcr and ycbcr2rgb.
 
     Args:
@@ -351,7 +352,8 @@ def _convert_output_type_range(img, dst_type):
         (ndarray): The converted image with desired type and range.
     """
     if dst_type not in (np.uint8, np.float32):
-        raise TypeError(f'The dst_type should be np.float32 or np.uint8, but got {dst_type}')
+        raise TypeError('The dst_type should be np.float32 or np.uint8, '
+                        f'but got {dst_type}')
     if dst_type == np.uint8:
         img = img.round()
     else:

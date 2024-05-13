@@ -18,19 +18,27 @@ class EnlargedSampler(Sampler):
         ratio (int): Enlarging ratio. Default: 1.
     """
 
-    def __init__(self, dataset, ratio=1):
+    def __init__(self, dataset, num_replicas, rank, ratio=1):
         self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
         self.epoch = 0
-        self.num_samples = math.ceil(len(self.dataset) * ratio)
+        self.num_samples = math.ceil(
+            len(self.dataset) * ratio / self.num_replicas)
+        self.total_size = self.num_samples * self.num_replicas
 
     def __iter__(self):
         # deterministically shuffle based on epoch
         g = torch.Generator()
         g.manual_seed(self.epoch)
-        indices = torch.randperm(self.num_samples, generator=g).tolist()
+        indices = torch.randperm(self.total_size, generator=g).tolist()
 
         dataset_size = len(self.dataset)
         indices = [v % dataset_size for v in indices]
+
+        # subsample
+        indices = indices[self.rank:self.total_size:self.num_replicas]
+        assert len(indices) == self.num_samples
 
         return iter(indices)
 
