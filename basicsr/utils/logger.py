@@ -40,18 +40,14 @@ class MessageLogger():
             name (str): Exp name.
             logger (dict): Contains 'print_freq' (str) for logger interval.
             train (dict): Contains 'total_iter' (int) for total iters.
-            use_tb_logger (bool): Use tensorboard logger.
         start_iter (int): Start iter. Default: 1.
-        tb_logger (obj:`tb_logger`): Tensorboard logger. Default： None.
     """
 
-    def __init__(self, opt, start_iter=1, tb_logger=None):
+    def __init__(self, opt, start_epoch = 1):
         self.exp_name = opt['name']
         self.interval = opt['logger']['print_freq']
-        self.start_iter = start_iter
-        self.max_iters = opt['train']['total_iter']
-        self.use_tb_logger = opt['logger']['use_tb_logger']
-        self.tb_logger = tb_logger
+        self.start_iter = start_epoch
+        self.max_epochs = opt['train']['total_epochs']
         self.start_time = time.time()
         self.logger = get_root_logger()
 
@@ -70,10 +66,9 @@ class MessageLogger():
         """
         # epoch, iter, learning rates
         epoch = log_vars.pop('epoch')
-        current_iter = log_vars.pop('iter')
         lrs = log_vars.pop('lrs')
 
-        message = (f'[{self.exp_name[:5]}..][epoch:{epoch:3d}, ' f'iter:{current_iter:8,d}, lr:(')
+        message = (f'[{self.exp_name[:5]}..][epoch:{epoch:3d},lr:(')
         for v in lrs:
             message += f'{v:.3e},'
         message += ')] '
@@ -83,30 +78,15 @@ class MessageLogger():
             iter_time = log_vars.pop('time')
             data_time = log_vars.pop('data_time')
 
-            total_time = time.time() - self.start_time
-            time_sec_avg = total_time / (current_iter - self.start_iter + 1)
-            eta_sec = time_sec_avg * (self.max_iters - current_iter - 1)
-            eta_str = str(datetime.timedelta(seconds=int(eta_sec)))
-            message += f'[eta: {eta_str}, '
+
             message += f'time (data): {iter_time:.3f} ({data_time:.3f})] '
 
         # other items, especially losses
         for k, v in log_vars.items():
             message += f'{k}: {v:.4e} '
             # tensorboard logger
-            if self.use_tb_logger and 'debug' not in self.exp_name:
-                if k.startswith('l_'):
-                    self.tb_logger.add_scalar(f'losses/{k}', v, current_iter)
-                else:
-                    self.tb_logger.add_scalar(k, v, current_iter)
         self.logger.info(message)
 
-
-@master_only
-def init_tb_logger(log_dir):
-    from torch.utils.tensorboard import SummaryWriter
-    tb_logger = SummaryWriter(log_dir=log_dir)
-    return tb_logger
 
 
 @master_only

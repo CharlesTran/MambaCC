@@ -1,6 +1,8 @@
 from .img_util import *
 from .logger import *
 from .misc import *
+from .LossTracker import *
+from .Evaluate import *
 from .settings import DEVICE
 
 __all__ = [
@@ -22,4 +24,6 @@ __all__ = [
     'scandir',
     'rescale',
     'angular_error',
+    'LossTracker',
+    'Evaluate',
 ]

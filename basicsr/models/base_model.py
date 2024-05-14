@@ -30,11 +30,11 @@ class BaseModel():
     def get_current_visuals(self):
         pass
 
-    def save(self, epoch, current_iter):
+    def save(self, epoch):
         """Save networks and training state."""
         pass
 
-    def validation(self, dataloader, current_iter, tb_logger, save_img=False, rgb2bgr=True, use_image=True):
+    def validation(self, dataloader):
         """Validation function.
 
         Args:
@@ -45,11 +45,7 @@ class BaseModel():
             rgb2bgr (bool): Whether to save images using rgb2bgr. Default: True
             use_image (bool): Whether to use saved images to compute metrics (PSNR, SSIM), if not, then use data directly from network' output. Default: True
         """
-        if self.opt['dist']:
-            return self.dist_validation(dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image)
-        else:
-            return self.nondist_validation(dataloader, current_iter, tb_logger,
-                                    save_img, rgb2bgr, use_image)
+        
 
     def model_ema(self, decay=0.999):
         net_g = self.get_bare_model(self.net_g)
@@ -180,7 +176,7 @@ class BaseModel():
                 [v['initial_lr'] for v in optimizer.param_groups])
         return init_lr_groups_l
 
-    def update_learning_rate(self, current_iter, warmup_iter=-1):
+    def update_learning_rate(self, epoch, warmup_epoch=-1):
         """Update learning rate.
 
         Args:
@@ -188,11 +184,11 @@ class BaseModel():
             warmup_iter (int)： Warmup iter numbers. -1 for no warmup.
                 Default： -1.
         """
-        if current_iter > 1:
+        if epoch > 1:
             for scheduler in self.schedulers:
                 scheduler.step()
         # set up warm-up learning rate
-        if current_iter < warmup_iter:
+        if epoch < warmup_epoch:
             # get initial lr for each group
             init_lr_g_l = self._get_init_lr()
             # modify warming-up learning rates
@@ -200,7 +196,7 @@ class BaseModel():
             warm_up_lr_l = []
             for init_lr_g in init_lr_g_l:
                 warm_up_lr_l.append(
-                    [v / warmup_iter * current_iter for v in init_lr_g])
+                    [v / warmup_epoch * epoch for v in init_lr_g])
             # set learning rate
             self._set_lr(warm_up_lr_l)
 
@@ -309,7 +305,7 @@ class BaseModel():
         net.load_state_dict(load_net, strict=strict)
 
     @master_only
-    def save_training_state(self, epoch, current_iter):
+    def save_training_state(self, epoch):
         """Save training states during training, which will be used for
         resuming.
 
@@ -317,10 +313,9 @@ class BaseModel():
             epoch (int): Current epoch.
             current_iter (int): Current iteration.
         """
-        if current_iter != -1:
+        if epoch != -1:
             state = {
                 'epoch': epoch,
-                'iter': current_iter,
                 'optimizers': [],
                 'schedulers': []
             }
@@ -328,7 +323,7 @@ class BaseModel():
                 state['optimizers'].append(o.state_dict())
             for s in self.schedulers:
                 state['schedulers'].append(s.state_dict())
-            save_filename = f'{current_iter}.state'
+            save_filename = f'{epoch}.state'
             save_path = os.path.join(self.opt['path']['training_states'],
                                      save_filename)
             torch.save(state, save_path)

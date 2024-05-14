@@ -10,14 +10,13 @@ import sys
 import os
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir.replace('/basicsr',''))
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 from basicsr.data import create_dataloader, create_dataset
-from basicsr.data.data_sampler import EnlargedSampler
 from basicsr.models import create_model
 from basicsr.utils import (MessageLogger, check_resume, get_env_info,
-                           get_root_logger, get_time_str, init_tb_logger,
-                           init_wandb_logger, make_exp_dirs, mkdir_and_rename,
-                           set_random_seed)
+                           get_root_logger, get_time_str,print_metrics,
+                            make_exp_dirs, mkdir_and_rename,
+                           set_random_seed,Evaluator,LossTracker)
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
 
@@ -68,17 +67,7 @@ def init_loggers(opt):
     logger.info(get_env_info())
     logger.info(dict2str(opt))
 
-    # initialize wandb logger before tensorboard logger to allow proper sync:
-    if (opt['logger'].get('wandb')
-            is not None) and (opt['logger']['wandb'].get('project')
-                              is not None) and ('debug' not in opt['name']):
-        assert opt['logger'].get('use_tb_logger') is True, (
-            'should turn on tensorboard when using wandb')
-        init_wandb_logger(opt)
-    tb_logger = None
-    if opt['logger'].get('use_tb_logger') and 'debug' not in opt['name']:
-        tb_logger = init_tb_logger(log_dir=osp.join('tb_logger', opt['name']))
-    return logger, tb_logger
+    return logger
 
 
 def create_train_val_dataloader(opt, logger):
@@ -93,20 +82,14 @@ def create_train_val_dataloader(opt, logger):
                 dataset_opt,
                 num_gpu=opt['num_gpu'],
                 seed=opt['manual_seed'])
-
-            num_iter_per_epoch = math.ceil(
-                len(train_set)/
-                dataset_opt['batch_size_per_gpu'])
-            total_iters = int(opt['train']['total_iter'])
-            total_epochs = math.ceil(total_iters / (num_iter_per_epoch))
+            total_epochs = int(opt['train']['total_epochs'])
             logger.info(
                 'Training statistics:'
                 f'\n\tNumber of train images: {len(train_set)}'
                 f'\n\tDataset enlarge ratio: {dataset_enlarge_ratio}'
                 f'\n\tBatch size per gpu: {dataset_opt["batch_size_per_gpu"]}'
                 f'\n\tWorld size (gpu number): {opt["world_size"]}'
-                f'\n\tRequire iter number per epoch: {num_iter_per_epoch}'
-                f'\n\tTotal epochs: {total_epochs}; iters: {total_iters}.')
+                f'\n\tTotal epochs: {total_epochs}.')
 
         elif phase == 'val':
             val_set = create_dataset(dataset_opt,False)
@@ -122,7 +105,7 @@ def create_train_val_dataloader(opt, logger):
         else:
             raise ValueError(f'Dataset phase {phase} is not recognized.')
 
-    return train_loader, val_loader, total_epochs, total_iters
+    return train_loader, val_loader, total_epochs
 
 
 def main():
@@ -157,76 +140,76 @@ def main():
     # mkdir for experiments and logger
     if resume_state is None:
         make_exp_dirs(opt)
-        if opt['logger'].get('use_tb_logger') and 'debug' not in opt[
-                'name'] and opt['rank'] == 0:
-            mkdir_and_rename(osp.join('tb_logger', opt['name']))
 
     # initialize loggers
-    logger, tb_logger = init_loggers(opt)
+    logger = init_loggers(opt)
 
     # create train and validation dataloaders
     result = create_train_val_dataloader(opt, logger)
-    train_loader, val_loader, total_epochs, total_iters = result
+    train_loader, val_loader, total_epochs = result
 
     # create model
     if resume_state:  # resume training
-        check_resume(opt, resume_state['iter'])
+        check_resume(opt, resume_state['epoch'])
         model = create_model(opt)
         model.resume_training(resume_state)  # handle optimizers and schedulers
-        logger.info(f"Resuming training from epoch: {resume_state['epoch']}, "
-                    f"iter: {resume_state['iter']}.")
+        logger.info(f"Resuming training from epoch: {resume_state['epoch']}. ")
         start_epoch = resume_state['epoch']
-        current_iter = resume_state['iter']
     else:
         model = create_model(opt)
         start_epoch = 0
-        current_iter = 0
 
     # create message logger (formatted outputs)
-    msg_logger = MessageLogger(opt, current_iter, tb_logger)
+    msg_logger = MessageLogger(opt, start_epoch)
 
 
     # training
     logger.info(
-        f'Start training from epoch: {start_epoch}, iter: {current_iter}')
+        f'Start training from epoch: {start_epoch}')
     # for epoch in range(start_epoch, total_epochs + 1):
-
+    print("\n**************************************************************")
+    print(f"\t\t Start training from epoch: {start_epoch}")
+    print("**************************************************************\n")
+    evaluator = Evaluator()
+    best_val_loss, best_metrics = 100000.0, evaluator.get_best_metrics()
+    train_loss, val_loss, ang_loss = LossTracker(), LossTracker(), LossTracker()
     for epoch in range(start_epoch, total_epochs + 1):
+        train_loss.reset()
+        ang_loss.reset()
+        # update learning rate
+        model.update_learning_rate(epoch, warmup_epoch=opt['train'].get('warmup_epoch', -1))
         for i, train_data in enumerate(train_loader):
-            current_iter += 1
-            if current_iter > total_iters:
-                break
-            # update learning rate
-            model.update_learning_rate(current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
             # training
             model.feed_data(train_data)
-            model.optimize_parameters(current_iter)
+            loss = model.optimize_parameters()
+            train_loss.update(loss)
+            print("[ Epoch: {}/{} - Batch: {} ] | [ Train loss: {:.4f} ]".format(epoch, total_epochs, i, loss))
             # log
-            if current_iter % opt['logger']['print_freq'] == 0:
-                log_vars = {'epoch': epoch, 'iter': current_iter}
-                log_vars.update({'lrs': model.get_current_learning_rate()})
-                log_vars.update(model.get_current_log())
-                msg_logger(log_vars)
-
+        if epoch % opt['logger']['print_freq'] == 0:
+            log_vars = {'epoch': epoch}
+            log_vars.update({'lrs': model.get_current_learning_rate()})
+            log_vars.update(model.get_current_log())
+            msg_logger(log_vars)
             # save models and training states
-            if current_iter % opt['logger']['save_checkpoint_freq'] == 0:
-                print("Saving models and training states.")
-                logger.info('Saving models and training states.')
-                model.save(epoch, current_iter)
-            # validation
-            if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
-                for val_loader in val_loader:
-                    model.validation(val_loader, current_iter, tb_logger, opt['val']['save_img'])
-        # end of iter
-
+        if epoch>0 and epoch % opt['logger']['save_checkpoint_freq'] == 0:
+            print("Saving models and training states.")
+            logger.info('Saving models and training states.')
+            model.save(epoch)
+        # validation
+        if epoch % opt['val']['val_freq'] == 0:
+            val_loss.reset()
+            model.validation(val_loader, val_loss, evaluator)
+        metrics = evaluator.compute_metrics()
+        print("\n********************************************************************")
+        print(" Train Loss ... : {:.4f}".format(train_loss.avg))
+        print("....................................................................")
+        print(" Val Loss ..... : {:.4f}".format(val_loss.avg))
+        print("....................................................................")
+        print_metrics(metrics, best_metrics)
+        print("********************************************************************\n")
     # end of epoch
     logger.info('Save the latest model.')
-    model.save(epoch=-1, current_iter=-1)  # -1 stands for the latest
-    if opt.get('val') is not None:
-        model.validation(val_loader, current_iter, tb_logger,
-                         opt['val']['save_img'])
-    if tb_logger:
-        tb_logger.close()
+    model.save(epoch=-1)  # -1 stands for the latest
 
 
 if __name__ == '__main__':

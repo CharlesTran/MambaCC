@@ -10,7 +10,6 @@ from basicsr.models.base_model import BaseModel
 from basicsr.utils import get_root_logger
 
 loss_module = importlib.import_module('basicsr.models.losses')
-metric_module = importlib.import_module('basicsr.metrics')
 
 import os
 import random
@@ -144,13 +143,13 @@ class ImageCleanModel(BaseModel):
         if 'gt' in data:
             self.gt = data['gt'].to(self.device)
 
-    def optimize_parameters(self, current_iter):
+    def optimize_parameters(self):
         self.optimizer_g.zero_grad()
+        self.net_g.train()
         preds = self.net_g(self.img)
 
         loss_dict = OrderedDict()
         angloss = self.angloss(preds, self.label)
-        print(angloss)
         angloss.backward()
         self.optimizer_g.step()
 
@@ -158,6 +157,18 @@ class ImageCleanModel(BaseModel):
 
         if self.ema_decay > 0:
             self.model_ema(decay=self.ema_decay)
+        return angloss
+    
+    def validation(self, dataloader, val_loss, evaluator):
+        self.net_g.eval()
+        with torch.no_grad():
+            for i, val_data in enumerate(dataloader):
+                self.feed_data(val_data)
+                preds = self.net_g(self.img)
+                angloss = self.angloss(preds, self.label)
+                val_loss.update(angloss)
+                evaluator.add_error(angloss.cpu())
+                print("[Batch: {}] | Val loss: {:.4f} ]".format(i, angloss))
 
     def pad_test(self, window_size):        
         scale = self.opt.get('scale', 1)
@@ -191,109 +202,12 @@ class ImageCleanModel(BaseModel):
             self.output = pred
             self.net_g.train()
 
-    def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
-        if os.environ['LOCAL_RANK'] == '0':
-            return self.nondist_validation(dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image)
-        else:
-            return 0.
-
-    def nondist_validation(self, dataloader, current_iter, tb_logger,
-                           save_img, rgb2bgr, use_image):
-        dataset_name = dataloader.dataset.opt['name']
-        with_metrics = self.opt['val'].get('metrics') is not None
-        if with_metrics:
-            self.metric_results = {
-                metric: 0
-                for metric in self.opt['val']['metrics'].keys()
-            }
-        # pbar = tqdm(total=len(dataloader), unit='image')
-
-        window_size = self.opt['val'].get('window_size', 0)
-
-        if window_size:
-            test = partial(self.pad_test, window_size)
-        else:
-            test = self.nonpad_test
-
-        cnt = 0
-
-        for idx, val_data in enumerate(dataloader):
-            img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
-
-            self.feed_data(val_data)
-            test()
-
-            visuals = self.get_current_visuals()
-            sr_img = tensor2img([visuals['result']], rgb2bgr=rgb2bgr)
-            if 'gt' in visuals:
-                gt_img = tensor2img([visuals['gt']], rgb2bgr=rgb2bgr)
-                del self.gt
-
-            # tentative for out of GPU memory
-            del self.lq
-            del self.output
-            torch.cuda.empty_cache()
-
-            if save_img:
-                
-                if self.opt['is_train']:
-                    
-                    save_img_path = osp.join(self.opt['path']['visualization'],
-                                             img_name,
-                                             f'{img_name}_{current_iter}.png')
-                    
-                    save_gt_img_path = osp.join(self.opt['path']['visualization'],
-                                             img_name,
-                                             f'{img_name}_{current_iter}_gt.png')
-                else:
-                    
-                    save_img_path = osp.join(
-                        self.opt['path']['visualization'], dataset_name,
-                        f'{img_name}.png')
-                    save_gt_img_path = osp.join(
-                        self.opt['path']['visualization'], dataset_name,
-                        f'{img_name}_gt.png')
-                    
-                imwrite(sr_img, save_img_path)
-                imwrite(gt_img, save_gt_img_path)
-
-            if with_metrics:
-                # calculate metrics
-                opt_metric = deepcopy(self.opt['val']['metrics'])
-                if use_image:
-                    for name, opt_ in opt_metric.items():
-                        metric_type = opt_.pop('type')
-                        self.metric_results[name] += getattr(
-                            metric_module, metric_type)(sr_img, gt_img, **opt_)
-                else:
-                    for name, opt_ in opt_metric.items():
-                        metric_type = opt_.pop('type')
-                        self.metric_results[name] += getattr(
-                            metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
-
-            cnt += 1
-
-        current_metric = 0.
-        if with_metrics:
-            for metric in self.metric_results.keys():
-                self.metric_results[metric] /= cnt
-                current_metric = self.metric_results[metric]
-
-            self._log_validation_metric_values(current_iter, dataset_name,
-                                               tb_logger)
-        return current_metric
-
-
-    def _log_validation_metric_values(self, current_iter, dataset_name,
-                                      tb_logger):
+    def _log_validation_metric_values(self, current_iter, dataset_name):
         log_str = f'Validation {dataset_name},\t'
         for metric, value in self.metric_results.items():
             log_str += f'\t # {metric}: {value:.4f}'
         logger = get_root_logger()
         logger.info(log_str)
-        if tb_logger:
-            for metric, value in self.metric_results.items():
-                tb_logger.add_scalar(f'metrics/{metric}', value, current_iter)
 
     def get_current_visuals(self):
         out_dict = OrderedDict()
@@ -303,12 +217,12 @@ class ImageCleanModel(BaseModel):
             out_dict['gt'] = self.gt.detach().cpu()
         return out_dict
 
-    def save(self, epoch, current_iter):
+    def save(self, epoch):
         if self.ema_decay > 0:
             self.save_network([self.net_g, self.net_g_ema],
                               'net_g',
-                              current_iter,
+                              epoch,
                               param_key=['params', 'params_ema'])
         else:
-            self.save_network(self.net_g, 'net_g', current_iter)
-        self.save_training_state(epoch, current_iter)
+            self.save_network(self.net_g, 'net_g', epoch)
+        self.save_training_state(epoch)
