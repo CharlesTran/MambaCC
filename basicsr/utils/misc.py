@@ -33,6 +33,7 @@ def mkdir_and_rename(path):
         print(f'Path already exists. Rename it to {new_name}', flush=True)
         os.rename(path, new_name)
     os.makedirs(path, exist_ok=True)
+    return path
 
 
 @master_only
@@ -40,14 +41,15 @@ def make_exp_dirs(opt):
     """Make dirs for experiments."""
     path_opt = opt['path'].copy()
     if opt['is_train']:
-        mkdir_and_rename(path_opt.pop('experiments_root'))
+        exp_dirs=mkdir_and_rename(path_opt.pop('experiments_root'))
     else:
-        mkdir_and_rename(path_opt.pop('results_root'))
+        exp_dirs=mkdir_and_rename(path_opt.pop('results_root'))
     for key, path in path_opt.items():
         if ('strict_load' not in key) and ('pretrain_network'
                                            not in key) and ('resume'
                                                             not in key):
             os.makedirs(path, exist_ok=True)
+    return exp_dirs
 
 
 def scandir(dir_path, suffix=None, recursive=False, full_path=False):

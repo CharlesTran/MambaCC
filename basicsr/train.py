@@ -10,12 +10,12 @@ import sys
 import os
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir.replace('/basicsr',''))
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
 from basicsr.data import create_dataloader, create_dataset
 from basicsr.models import create_model
 from basicsr.utils import (MessageLogger, check_resume, get_env_info,
                            get_root_logger, get_time_str,print_metrics,
-                            make_exp_dirs, mkdir_and_rename,
+                            make_exp_dirs, mkdir_and_rename,log_metrics,
                            set_random_seed,Evaluator,LossTracker)
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
@@ -139,7 +139,7 @@ def main():
 
     # mkdir for experiments and logger
     if resume_state is None:
-        make_exp_dirs(opt)
+        exp_dirs = make_exp_dirs(opt)
 
     # initialize loggers
     logger = init_loggers(opt)
@@ -178,6 +178,7 @@ def main():
         ang_loss.reset()
         # update learning rate
         model.update_learning_rate(epoch, warmup_epoch=opt['train'].get('warmup_epoch', -1))
+        lr = model.get_current_learning_rate()
         for i, train_data in enumerate(train_loader):
             # training
             model.feed_data(train_data)
@@ -200,6 +201,7 @@ def main():
             val_loss.reset()
             model.validation(val_loader, val_loss, evaluator)
         metrics = evaluator.compute_metrics()
+        
         print("\n********************************************************************")
         print(" Train Loss ... : {:.4f}".format(train_loss.avg))
         print("....................................................................")
@@ -207,6 +209,10 @@ def main():
         print("....................................................................")
         print_metrics(metrics, best_metrics)
         print("********************************************************************\n")
+        if 0 < val_loss.avg < best_val_loss:
+            best_val_loss = val_loss.avg
+            best_metrics = evaluator.update_best_metrics()
+        log_metrics(train_loss.avg.item(), val_loss.avg.item(), lr, metrics, best_metrics, os.path.join(exp_dirs, "metrics.csv"))
     # end of epoch
     logger.info('Save the latest model.')
     model.save(epoch=-1)  # -1 stands for the latest

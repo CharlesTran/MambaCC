@@ -26,7 +26,6 @@ class Evaluator:
 
     def compute_metrics(self, reverse=False) -> dict:
         self.__errors = sorted(self.__errors, reverse=reverse)
-        print(reverse)
         self.__metrics = {
             "mean": np.mean(self.__errors),
             "median": self.__g(0.5),

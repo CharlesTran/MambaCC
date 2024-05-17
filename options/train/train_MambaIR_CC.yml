@@ -1,7 +1,7 @@
 # general settings for image SR training
-name: MambaIR_CC
+name: MambaCC
 model_type: ImageCleanModel
-num_gpu: 4
+num_gpu: 3
 manual_seed: 10
 
 # dataset and data loader settings
@@ -87,7 +87,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: 100
+  save_checkpoint_freq: 20
   use_tb_logger: false
   wandb:
     project: ~
