@@ -6,11 +6,10 @@ from .dist_util import get_dist_info, master_only
 import os
 initialized_logger = {}
 
-def log_metrics(train_loss: float, val_loss: float, angular_loss:float, lr: float, current_metrics: dict, best_metrics: dict, path_to_log: str):
+def log_metrics(train_loss: float, val_loss: float, lr: float, current_metrics: dict, best_metrics: dict, path_to_log: str):
     log_data = pd.DataFrame({
         "train_loss": [train_loss],
         "val_loss": [val_loss],
-        "angular_loss": [angular_loss], 
         "learning_rate": [lr],
         "best_mean": best_metrics["mean"],
         "best_median": best_metrics["median"],

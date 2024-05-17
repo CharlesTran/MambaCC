@@ -10,7 +10,7 @@ import sys
 import os
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(current_dir.replace('/basicsr',''))
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3"
 from basicsr.data import create_dataloader, create_dataset
 from basicsr.models import create_model
 from basicsr.utils import (MessageLogger, check_resume, get_env_info,
@@ -201,6 +201,7 @@ def main():
             val_loss.reset()
             model.validation(val_loader, val_loss, evaluator)
         metrics = evaluator.compute_metrics()
+        
         print("\n********************************************************************")
         print(" Train Loss ... : {:.4f}".format(train_loss.avg))
         print("....................................................................")
@@ -208,7 +209,10 @@ def main():
         print("....................................................................")
         print_metrics(metrics, best_metrics)
         print("********************************************************************\n")
-        log_metrics(train_loss.avg, val_loss.avg, lr, metrics, best_metrics, exp_dirs)
+        if 0 < val_loss.avg < best_val_loss:
+            best_val_loss = val_loss.avg
+            best_metrics = evaluator.update_best_metrics()
+        log_metrics(train_loss.avg.item(), val_loss.avg.item(), lr, metrics, best_metrics, os.path.join(exp_dirs, "metrics.csv"))
     # end of epoch
     logger.info('Save the latest model.')
     model.save(epoch=-1)  # -1 stands for the latest
